@@ -1,0 +1,239 @@
+---
+title: "CEN Correlation Analysis"
+author: "Echo Mei Xu"
+date: '2024-04-22'
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(writexl)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(lme4)
+library(purrr)
+library(cluster)
+library(reshape2)
+library(tibble)
+
+cen.stroop <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230814_cen_cog.xlsx", sheet = "stroop")
+cen.stroop$session <- factor (cen.stroop$session, levels = c('S1', 'S2', 'S3'))
+cen.stroop$session <- as.numeric(cen.stroop$session)
+cen.stroop <- cen.stroop %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), type = as.factor(type),  gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC),intensity = as.numeric(intensity), acc = as.numeric(acc), rt = as.numeric(rt))
+cen.stroop$condition  <- relevel(cen.stroop$condition, ref = "V")
+cen.stroop.con        <- filter (cen.stroop, type == "con")
+cen.stroop.incon      <- filter (cen.stroop, type == "incon")
+
+cen.nback <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230814_cen_cog.xlsx", sheet = "2-back")
+cen.nback$session <- factor (cen.nback$session, levels = c('S1', 'S2', 'S3'))
+cen.nback$session <- as.numeric(cen.nback$session)
+cen.nback <- cen.nback %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC), intensity = as.numeric(intensity), rt = as.numeric(rt), dprime = as.numeric(dprime))
+cen.nback$condition   <- relevel(cen.nback$condition, ref = "V")
+
+cen.stroop.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230815_cen_eeg.xlsx", sheet = "stroop")
+cen.stroop.eeg <- cen.stroop.eeg[order(cen.stroop.eeg$participant),]
+cen.stroop.eeg <- cen.stroop.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), stroop_n2_Fz = as.numeric(stroop_n2_Fz), stroop_n4_Cz = as.numeric(stroop_n4_Cz))
+cen.stroop.eeg$condition  <- relevel(cen.stroop.eeg$condition, ref = "V")
+cen.stroop.eeg.con        <- filter (cen.stroop.eeg, type == "con")
+cen.stroop.eeg.incon      <- filter (cen.stroop.eeg, type == "incon")
+
+cen.nback.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230815_cen_eeg.xlsx", sheet = "nback")
+cen.nback.eeg <- cen.nback.eeg[order(cen.nback.eeg$participant),]
+cen.nback.eeg <- cen.nback.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), nback_p3_id_Pz = as.numeric(nback_p3_id_Pz), nback_p3_id_P1 = as.numeric(nback_p3_id_P1), nback_p3_id_P3 = as.numeric(nback_p3_id_P3), nback_n2_id_Fz = as.numeric(nback_n2_id_Fz), nback_p3_id_Fz = as.numeric(nback_p3_id_Fz))
+cen.nback.eeg$condition   <- relevel(cen.nback.eeg$condition, ref = "V")
+
+```
+
+***Stroop con***
+Correlations of differences between active conditions and sham on RT and ERPs in Stroop congruent trials
+Only visualize the significant correlations
+
+```{r check correlations of rt, erps in stroop con}
+# reshape the dataframe and merage the cog and eeg dataset
+cen.stroop.con.wide                        <- dcast(cen.stroop.con, participant ~ condition, value.var = c("rt"))
+cen.stroop.con.wide$diff_rt_dlpfc          <- cen.stroop.con.wide$D-cen.stroop.con.wide$V
+cen.stroop.con.wide$diff_rt_cerebellum     <- cen.stroop.con.wide$C-cen.stroop.con.wide$V
+
+cen.stroop.eeg.con.n2                        <- dcast(cen.stroop.eeg.con, participant ~ condition, value.var = c("stroop_n2_Fz"))
+cen.stroop.eeg.con.n2$diff_n2_dlpfc          <- cen.stroop.eeg.con.n2$D-cen.stroop.eeg.con.n2$V
+cen.stroop.eeg.con.n2$diff_n2_cerebellum     <- cen.stroop.eeg.con.n2$C-cen.stroop.eeg.con.n2$V
+cen.stroop.eeg.con.n4                        <- dcast(cen.stroop.eeg.con, participant ~ condition, value.var = c("stroop_n4_Cz"))
+cen.stroop.eeg.con.n4$diff_n4_dlpfc          <- cen.stroop.eeg.con.n4$D-cen.stroop.eeg.con.n4$V
+cen.stroop.eeg.con.n4$diff_n4_cerebellum     <- cen.stroop.eeg.con.n4$C-cen.stroop.eeg.con.n4$V
+
+cen.stroop.con.corr                     <- cen.stroop.con.wide
+cen.stroop.con.corr$diff_n2_dlpfc       <- cen.stroop.eeg.con.n2$diff_n2_dlpfc 
+cen.stroop.con.corr$diff_n2_cerebellum  <- cen.stroop.eeg.con.n2$diff_n2_cerebellum 
+cen.stroop.con.corr$diff_n4_dlpfc       <- cen.stroop.eeg.con.n4$diff_n4_dlpfc 
+cen.stroop.con.corr$diff_n4_cerebellum  <- cen.stroop.eeg.con.n4$diff_n4_cerebellum 
+
+# correlation tests
+cor.test(cen.stroop.con.corr$diff_rt_cerebellum, cen.stroop.con.corr$diff_rt_dlpfc)
+cor.test(cen.stroop.con.corr$diff_n2_cerebellum, cen.stroop.con.corr$diff_n2_dlpfc)
+cor.test(cen.stroop.con.corr$diff_n4_cerebellum, cen.stroop.con.corr$diff_n4_dlpfc)
+cor.test(cen.stroop.con.corr$diff_rt_dlpfc, cen.stroop.con.corr$diff_n2_dlpfc)
+cor.test(cen.stroop.con.corr$diff_rt_dlpfc, cen.stroop.con.corr$diff_n4_dlpfc)
+cor.test(cen.stroop.con.corr$diff_rt_cerebellum, cen.stroop.con.corr$diff_n2_cerebellum)
+cor.test(cen.stroop.con.corr$diff_rt_cerebellum, cen.stroop.con.corr$diff_n4_cerebellum)
+
+# Visualize the significant correlations
+ggplot(cen.stroop.con.corr, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT DLPFC-Sham") +
+    ylab("RT Cerebellum-Sham") +
+    labs(title = "Stroop Con")
+
+ggplot(cen.stroop.con.corr, aes(diff_n4_dlpfc, diff_n4_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("N4 DLPFC-Sham") +
+    ylab("N4 Cerebellum-Sham") +
+    labs(title = "Stroop Con")
+
+ggplot(cen.stroop.con.corr, aes(diff_rt_dlpfc, diff_n4_dlpfc, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT DLPFC-Sham") +
+    ylab("N4 DLPFC-Sham") +
+    labs(title = "Stroop Con") 
+
+ggplot(cen.stroop.con.corr, aes(diff_rt_cerebellum, diff_n4_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT Cerebellum-Sham") +
+    ylab("N4 Cerebellum-Sham") +
+    labs(title = "Stroop Con") 
+
+```
+
+***Stroop Incon***
+Correlations of differences between active conditions and sham on RT and ERPs in Stroop incongruent trials
+Only visualize the significant correlations
+
+```{r check correlations of rt, erps in stroop incon}
+# reshape the dataframe and merage the cog and eeg dataset
+cen.stroop.incon.wide                        <- dcast(cen.stroop.incon, participant ~ condition, value.var = c("rt"))
+cen.stroop.incon.wide$diff_rt_dlpfc          <- cen.stroop.incon.wide$D-cen.stroop.incon.wide$V
+cen.stroop.incon.wide$diff_rt_cerebellum     <- cen.stroop.incon.wide$C-cen.stroop.incon.wide$V
+
+cen.stroop.eeg.incon.n2                        <- dcast(cen.stroop.eeg.incon, participant ~ condition, value.var = c("stroop_n2_Fz"))
+cen.stroop.eeg.incon.n2$diff_n2_dlpfc          <- cen.stroop.eeg.incon.n2$D-cen.stroop.eeg.incon.n2$V
+cen.stroop.eeg.incon.n2$diff_n2_cerebellum     <- cen.stroop.eeg.incon.n2$C-cen.stroop.eeg.incon.n2$V
+cen.stroop.eeg.incon.n4                        <- dcast(cen.stroop.eeg.incon, participant ~ condition, value.var = c("stroop_n4_Cz"))
+cen.stroop.eeg.incon.n4$diff_n4_dlpfc          <- cen.stroop.eeg.incon.n4$D-cen.stroop.eeg.incon.n4$V
+cen.stroop.eeg.incon.n4$diff_n4_cerebellum     <- cen.stroop.eeg.incon.n4$C-cen.stroop.eeg.incon.n4$V
+
+cen.stroop.incon.corr                     <- cen.stroop.incon.wide
+cen.stroop.incon.corr$diff_n2_dlpfc       <- cen.stroop.eeg.incon.n2$diff_n2_dlpfc 
+cen.stroop.incon.corr$diff_n2_cerebellum  <- cen.stroop.eeg.incon.n2$diff_n2_cerebellum 
+cen.stroop.incon.corr$diff_n4_dlpfc       <- cen.stroop.eeg.incon.n4$diff_n4_dlpfc 
+cen.stroop.incon.corr$diff_n4_cerebellum  <- cen.stroop.eeg.incon.n4$diff_n4_cerebellum 
+
+# correlation tests
+cor.test(cen.stroop.incon.corr$diff_rt_cerebellum, cen.stroop.incon.corr$diff_rt_dlpfc)
+cor.test(cen.stroop.incon.corr$diff_n2_cerebellum, cen.stroop.incon.corr$diff_n2_dlpfc)
+cor.test(cen.stroop.incon.corr$diff_n4_cerebellum, cen.stroop.incon.corr$diff_n4_dlpfc)
+cor.test(cen.stroop.incon.corr$diff_rt_dlpfc, cen.stroop.incon.corr$diff_n2_dlpfc)
+cor.test(cen.stroop.incon.corr$diff_rt_dlpfc, cen.stroop.incon.corr$diff_n4_dlpfc)
+cor.test(cen.stroop.incon.corr$diff_rt_cerebellum, cen.stroop.incon.corr$diff_n2_cerebellum)
+cor.test(cen.stroop.incon.corr$diff_rt_cerebellum, cen.stroop.incon.corr$diff_n4_cerebellum)
+
+# Correlation plots
+ggplot(cen.stroop.incon.corr, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT DLPFC-Sham") +
+    ylab("RT Cerebellum-Sham") +
+    labs(title = "Stroop Incon")
+
+ggplot(cen.stroop.incon.corr, aes(diff_n2_dlpfc, diff_n2_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("N2 DLPFC-Sham") +
+    ylab("N2 Cerebellum-Sham") +
+    labs(title = "Stroop Incon")
+
+ggplot(cen.stroop.incon.corr, aes(diff_rt_dlpfc, diff_n4_dlpfc, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT DLPFC-Sham") +
+    ylab("N4 DLPFC-Sham") +
+    labs(title = "Stroop Incon") 
+
+```
+
+***2-back***
+Correlations of differences between active conditions and sham on RT and ERPs in 2-back
+Only visualize the significant correlations
+
+```{r check correlations of rt, dprime, erps in 2-back}
+# reshape the dataframe and merage the cog and eeg dataset
+cen.nback.rt.wide                        <- dcast(cen.nback, participant ~ condition, value.var = c("rt"))
+cen.nback.rt.wide$diff_rt_dlpfc          <- cen.nback.rt.wide$D-cen.nback.rt.wide$V
+cen.nback.rt.wide$diff_rt_cerebellum     <- cen.nback.rt.wide$C-cen.nback.rt.wide$V
+
+cen.nback.dprime.wide                            <- dcast(cen.nback, participant ~ condition, value.var = c("dprime"))
+cen.nback.dprime.wide$diff_dprime_dlpfc          <- cen.nback.dprime.wide$D-cen.nback.dprime.wide$V
+cen.nback.dprime.wide$diff_dprime_cerebellum     <- cen.nback.dprime.wide$C-cen.nback.dprime.wide$V
+
+cen.nback.eeg.n2                        <- dcast(cen.nback.eeg, participant ~ condition, value.var = c("nback_n2_id_Fz"))
+cen.nback.eeg.n2$diff_n2_dlpfc          <- cen.nback.eeg.n2$D-cen.nback.eeg.n2$V
+cen.nback.eeg.n2$diff_n2_cerebellum     <- cen.nback.eeg.n2$C-cen.nback.eeg.n2$V
+cen.nback.eeg.p3                        <- dcast(cen.nback.eeg, participant ~ condition, value.var = c("nback_p3_id_Pz"))
+cen.nback.eeg.p3$diff_p3_dlpfc          <- cen.nback.eeg.p3$D-cen.nback.eeg.p3$V
+cen.nback.eeg.p3$diff_p3_cerebellum     <- cen.nback.eeg.p3$C-cen.nback.eeg.p3$V
+
+cen.nback.corr                          <- cen.nback.rt.wide
+cen.nback.corr$diff_dprime_dlpfc        <- cen.nback.dprime.wide$diff_dprime_dlpfc 
+cen.nback.corr$diff_dprime_cerebellum   <- cen.nback.dprime.wide$diff_dprime_cerebellum
+cen.nback.corr$diff_n2_dlpfc            <- cen.nback.eeg.n2$diff_n2_dlpfc 
+cen.nback.corr$diff_n2_cerebellum       <- cen.nback.eeg.n2$diff_n2_cerebellum 
+cen.nback.corr$diff_p3_dlpfc            <- cen.nback.eeg.p3$diff_p3_dlpfc 
+cen.nback.corr$diff_p3_cerebellum       <- cen.nback.eeg.p3$diff_p3_cerebellum 
+
+# correlation tests
+cor.test(cen.nback.corr$diff_rt_cerebellum, cen.nback.corr$diff_rt_dlpfc)
+cor.test(cen.nback.corr$diff_n2_cerebellum, cen.nback.corr$diff_n2_dlpfc)
+cor.test(cen.nback.corr$diff_p3_cerebellum, cen.nback.corr$diff_p3_dlpfc)
+cor.test(cen.nback.corr$diff_rt_dlpfc, cen.nback.corr$diff_n2_dlpfc)
+cor.test(cen.nback.corr$diff_rt_dlpfc, cen.nback.corr$diff_p3_dlpfc)
+cor.test(cen.nback.corr$diff_rt_cerebellum, cen.nback.corr$diff_n2_cerebellum)
+cor.test(cen.nback.corr$diff_rt_cerebellum, cen.nback.corr$diff_p3_cerebellum)
+
+cor.test(cen.nback.corr$diff_dprime_cerebellum, cen.nback.corr$diff_dprime_dlpfc)
+cor.test(cen.nback.corr$diff_dprime_dlpfc, cen.nback.corr$diff_n2_dlpfc)
+cor.test(cen.nback.corr$diff_dprime_dlpfc, cen.nback.corr$diff_p3_dlpfc)
+cor.test(cen.nback.corr$diff_dprime_cerebellum, cen.nback.corr$diff_n2_cerebellum)
+cor.test(cen.nback.corr$diff_dprime_cerebellum, cen.nback.corr$diff_p3_cerebellum)
+
+# correlation plots
+ggplot(cen.nback.corr, aes(diff_n2_dlpfc, diff_n2_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("N2 DLPFC-Sham") +
+    ylab("N2 Cerebellum-Sham") +
+    labs(title = "2-back") 
+
+ggplot(cen.nback.corr, aes(diff_p3_dlpfc, diff_p3_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("P3 DLPFC-Sham") +
+    ylab("P3 Cerebellum-Sham") +
+    labs(title = "2-back") 
+
+ggplot(cen.nback.corr, aes(diff_rt_dlpfc, diff_n2_dlpfc, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("RT DLPFC-Sham") +
+    ylab("N2 DLPFC-Sham") +
+    labs(title = "2-back") 
+
+ggplot(cen.nback.corr, aes(diff_dprime_dlpfc, diff_n2_dlpfc, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("Dprime DLPFC-Sham") +
+    ylab("N2 DLPFC-Sham") +
+    labs(title = "2-back") 
+
+```

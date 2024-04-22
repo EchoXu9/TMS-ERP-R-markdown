@@ -1,0 +1,555 @@
+---
+title: "CEN Cluster Analysis_RT residuals of tasks"
+author: "Echo Mei Xu"
+date: '2024-04-22'
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(writexl)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(lme4)
+library(purrr)
+library(cluster)
+library(reshape2)
+library(tibble)
+
+cen.stroop <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230814_cen_cog.xlsx", sheet = "stroop")
+cen.stroop$session <- factor (cen.stroop$session, levels = c('S1', 'S2', 'S3'))
+cen.stroop$session <- as.numeric(cen.stroop$session)
+cen.stroop <- cen.stroop %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), type = as.factor(type),  gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC),intensity = as.numeric(intensity), acc = as.numeric(acc), rt = as.numeric(rt))
+cen.stroop$condition  <- relevel(cen.stroop$condition, ref = "V")
+cen.stroop.con        <- filter (cen.stroop, type == "con")
+cen.stroop.incon      <- filter (cen.stroop, type == "incon")
+
+cen.nback <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230814_cen_cog.xlsx", sheet = "2-back")
+cen.nback$session <- factor (cen.nback$session, levels = c('S1', 'S2', 'S3'))
+cen.nback$session <- as.numeric(cen.nback$session)
+cen.nback <- cen.nback %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC), intensity = as.numeric(intensity), rt = as.numeric(rt), dprime = as.numeric(dprime))
+cen.nback$condition   <- relevel(cen.nback$condition, ref = "V")
+
+cen.stroop.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230815_cen_eeg.xlsx", sheet = "stroop")
+cen.stroop.eeg <- cen.stroop.eeg[order(cen.stroop.eeg$participant),]
+cen.stroop.eeg <- cen.stroop.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), stroop_n2_Fz = as.numeric(stroop_n2_Fz), stroop_n4_Cz = as.numeric(stroop_n4_Cz))
+cen.stroop.eeg$condition  <- relevel(cen.stroop.eeg$condition, ref = "V")
+cen.stroop.eeg.con        <- filter (cen.stroop.eeg, type == "con")
+cen.stroop.eeg.incon      <- filter (cen.stroop.eeg, type == "incon")
+
+cen.nback.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230815_cen_eeg.xlsx", sheet = "nback")
+cen.nback.eeg <- cen.nback.eeg[order(cen.nback.eeg$participant),]
+cen.nback.eeg <- cen.nback.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), nback_p3_id_Pz = as.numeric(nback_p3_id_Pz), nback_p3_id_P1 = as.numeric(nback_p3_id_P1), nback_p3_id_P3 = as.numeric(nback_p3_id_P3), nback_n2_id_Fz = as.numeric(nback_n2_id_Fz), nback_p3_id_Fz = as.numeric(nback_p3_id_Fz))
+cen.nback.eeg$condition   <- relevel(cen.nback.eeg$condition, ref = "V")
+```
+
+Silhouette width for every observation: within cluster distance C(i) and closest neighbor distance N(i)
+
+C(i): the average euclidean distance from the observation to every other observation within the same cluster. 
+N(i): the closest neighbor distance for an observation is the average distance from that observation to the points of the closest neighboring cluster. The smallest average distance to our observation is used as the closest neighbor distance. 
+
+Si = 1- C(i)/N(i) if C(i) < N(i);
+Si = 0            if C(i) = N(i);
+Si = N(i)/C(i)-1  if C(i) > N(i);
+
+1: Well matched to the cluster
+0: On border between two clusters
+-1: Better fit in neighboring cluster
+
+Cluster analyses using residuals
+
+```{r 2back cluster analysis, echo = FALSE}
+# Data manipulation and calculate condition difference based on residuals
+nback_rt_session_only     <- lmer(formula = rt ~  1 + session + (1 |participant), data = cen.nback)
+nback_dprime_session_only <- lmer(formula = dprime ~  1 + session + (1 |participant), data = cen.nback)
+
+# Predict residuals
+cen.nback.new          <- cen.nback
+cen.nback.new$session  <- cen.nback$session[3]
+cen.nback$rt.resid     <- resid(nback_rt_session_only, newdata = cen.nback.new, re.form = ~ (1 | participant))
+cen.nback$dprime.resid <- resid(nback_dprime_session_only, newdata = cen.nback.new, re.form = ~ (1 | participant))
+
+cen.nback.rt.wide                        <- dcast(cen.nback, participant ~ condition, value.var = c("rt.resid"))
+cen.nback.rt.wide$diff_rt_dlpfc          <- cen.nback.rt.wide$D-cen.nback.rt.wide$V
+cen.nback.rt.wide$diff_rt_cerebellum     <- cen.nback.rt.wide$C-cen.nback.rt.wide$V
+
+cen.nback.dprime.wide                            <- dcast(cen.nback, participant ~ condition, value.var = c("dprime.resid"))
+cen.nback.dprime.wide$diff_dprime_dlpfc          <- cen.nback.dprime.wide$D-cen.nback.dprime.wide$V
+cen.nback.dprime.wide$diff_dprime_cerebellum     <- cen.nback.dprime.wide$C-cen.nback.dprime.wide$V
+
+# plot predicted residuals
+plot(cen.nback.rt.wide$diff_rt_cerebellum, cen.nback.rt.wide$diff_rt_dlpfc, pch = 19)
+abline(v=0, col="blue", lty=2)
+abline(h=15, col="blue", lty=2)
+
+plot(cen.nback.dprime.wide$diff_dprime_cerebellum, cen.nback.dprime.wide$diff_dprime_dlpfc, pch = 19)
+abline(v=0, col="blue", lty=2)
+abline(h=0, col="blue", lty=2)
+
+#plot residual difference between active conditions and sham
+ggplot(cen.nback.rt.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "2-back RT Residuals") 
+
+ggplot(cen.nback.dprime.wide, aes(diff_dprime_dlpfc, diff_dprime_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "2-back Dprime Residuals")
+
+#cluster analysis_rt
+#Select columns of interest
+cen.nback.cluster.rt <- as_tibble(cen.nback.rt.wide)
+cen.nback.cluster.rt <- cen.nback.rt.wide[, c("diff_rt_dlpfc", "diff_rt_cerebellum")]
+# cen.nback.cluster.rt |> select(diff_rt_dlpfc, diff_rt_cerebellum) |> cor(use="pairwise.complete.obs") |> round(2)
+cen.nback.cluster.dprime <- as_tibble(cen.nback.dprime.wide)
+cen.nback.cluster.dprime <- cen.nback.dprime.wide[, c("diff_dprime_dlpfc", "diff_dprime_cerebellum")]
+# cen.nback.cluster.dprime |> select(diff_dprime_dlpfc, diff_dprime_cerebellum) |> cor(use="pairwise.complete.obs") |> round(2)
+
+#normalization data frame
+cen.nback.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")] = scale(cen.nback.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")])
+cen.nback.cluster.dprime[, c("diff_dprime_dlpfc", "diff_dprime_cerebellum")] = scale(cen.nback.cluster.dprime[, c("diff_dprime_dlpfc", "diff_dprime_cerebellum")])
+
+# Decide how many clusters to look at
+n_clusters <- 10
+
+# Initialize total within sum of squares error: wss
+wss_rt <- numeric(n_clusters)
+wss_dprime <- numeric(n_clusters)
+set.seed(123)
+
+# Look over 1 to n possible clusters
+for (i in 1:n_clusters) {
+  # Fit the model
+  km_nback_rt <- kmeans(cen.nback.cluster.rt, centers = i, nstart = 20)
+  km_nback_dprime <- kmeans(cen.nback.cluster.dprime, centers = i, nstart = 20)
+  # Save the within cluster sum of squares
+  wss_rt[i] <- km_nback_rt$tot.withinss
+  wss_dprime[i] <- km_nback_dprime$tot.withinss
+}
+
+# Produce scree plots (Elbow methods)
+wss_rt_df <- tibble(clusters = 1:n_clusters, wss_rt = wss_rt)
+scree_plot_rt <- ggplot(wss_rt_df, aes(x = clusters, y = wss_rt, group = 1)) +
+    geom_point(size = 4)+
+    geom_line() +
+    scale_x_continuous(breaks = c(2, 4, 6, 8, 10)) +
+    xlab('Number of clusters') +
+    geom_hline(
+        yintercept = wss_rt,
+        linetype = 'dashed',
+        col = c(rep('#000000',4),'#FF0000', rep('#000000', 5))
+    )
+scree_plot_rt
+
+# Silhouette analysis_RT
+sil_width <- map_dbl(2:10, function(k){
+  model <- pam(x=cen.nback.cluster.rt, k = k)
+  model$silinfo$avg.width
+})
+sil_df <- data.frame(
+  k=2:10,
+  sil_width = sil_width
+)
+ggplot(sil_df, aes(x=k, y = sil_width))+
+  geom_line()+
+  scale_x_continuous(breaks = 2:10)
+
+# Silhouette plots, plot(pam(x=cen.nback.cluster.rt, k=2))
+plot(silhouette(pam(x=cen.nback.cluster.rt, k=2)))
+plot(silhouette(pam(x=cen.nback.cluster.rt, k=3)))
+plot(silhouette(pam(x=cen.nback.cluster.rt, k=4)))
+plot(silhouette(pam(x=cen.nback.cluster.rt, k=5)))
+plot(silhouette(pam(x=cen.nback.cluster.rt, k=6)))
+
+# Produce scree plots (Elbow methods)
+wss_dprime_df <- tibble(clusters = 1:n_clusters, wss_rt = wss_rt)
+scree_plot_dprime <- ggplot(wss_dprime_df, aes(x = clusters, y = wss_dprime, group = 1)) +
+    geom_point(size = 4)+
+    geom_line() +
+    scale_x_continuous(breaks = c(2, 4, 6, 8, 10)) +
+    xlab('Number of clusters') +
+    geom_hline(
+        yintercept = wss_dprime,
+        linetype = 'dashed',
+        col = c(rep('#000000',4),'#FF0000', rep('#000000', 5))
+    )
+scree_plot_dprime
+
+# Silhouette analysis_dprime
+sil_width <- map_dbl(2:10, function(k){
+  model <- pam(x=cen.nback.cluster.dprime, k = k)
+  model$silinfo$avg.width
+})
+sil_df <- data.frame(
+  k=2:10,
+  sil_width = sil_width
+)
+ggplot(sil_df, aes(x=k, y = sil_width)) +
+  geom_line() +
+  scale_x_continuous(breaks = 2:10)
+
+# Silhouette plots, plot(pam(x=cen.nback.cluster.rt, k=2))
+plot(silhouette(pam(x=cen.nback.cluster.dprime, k=2)))
+plot(silhouette(pam(x=cen.nback.cluster.dprime, k=3)))
+plot(silhouette(pam(x=cen.nback.cluster.dprime, k=4)))
+plot(silhouette(pam(x=cen.nback.cluster.dprime, k=5)))
+plot(silhouette(pam(x=cen.nback.cluster.dprime, k=6)))
+
+# Select number of clusters
+k <- 3
+set.seed(123)
+# Build model with k clusters: km.out
+km_nback_rt <- kmeans(cen.nback.cluster.rt, centers = k, nstart = 20)
+km_nback_dprime <- kmeans(cen.nback.cluster.dprime, centers = k, nstart = 20)
+cen.nback.rt.wide$cluster_rt_id <- factor(km_nback_rt$cluster)
+cen.nback.dprime.wide$cluster_dprime_id <- factor(km_nback_dprime$cluster)
+
+# check the sample number and mean in each cluster
+count(cen.nback.rt.wide, cluster_rt_id)
+# cen.nback.rt.wide %>% group_by(cluster_rt_id) %>% summarise_all(list(mean))
+count(cen.nback.dprime.wide, cluster_dprime_id)
+# cen.nback.dprime.wide%>% group_by(cluster_dprime_id) %>% summarise_all(list(mean))
+
+ggplot(cen.nback.rt.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = cluster_rt_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "2-back RT")
+
+ggplot(cen.nback.dprime.wide, aes(diff_dprime_dlpfc, diff_dprime_cerebellum, color = cluster_dprime_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "2-back dprime")
+
+cen.nback.wide.new            <- cen.nback.rt.wide  %>% slice(rep(1:n(), each = 3))
+cen.nback.eeg$cluster_rt <- cen.nback.wide.new$cluster_rt_id
+cen_nback_p3_cluster         <- lmer(formula = nback_p3_id_Pz ~  1 + cluster_rt + session + (1 |participant), data = cen.nback.eeg)
+cen_nback_n2_cluster         <- lmer(formula = nback_n2_id_Fz ~  1 + cluster_rt + session + (1 |participant), data = cen.nback.eeg)
+summary(cen_nback_p3_cluster)
+summary(cen_nback_n2_cluster)
+
+```
+
+```{r Stroop cluster analysis, echo=FALSE}
+# Data manipulation and calculate condition difference based on residuals
+stroop_con_session_only     <- lmer(formula = rt ~  1 + session + (1 |participant), data = cen.stroop.con)
+stroop_incon_session_only   <- lmer(formula = rt ~  1 + session + (1 |participant), data = cen.stroop.incon)
+
+# Predict residuals
+cen.stroop.con.new            <- cen.stroop.con
+cen.stroop.con.new$session    <- cen.stroop.con.new$session[3]
+cen.stroop.con$rt.resid       <- resid(stroop_con_session_only, newdata = cen.stroop.con.new, re.form = ~ (1 | participant))
+cen.stroop.incon.new          <- cen.stroop.incon
+cen.stroop.incon.new$session  <- cen.stroop.incon.new$session[3]
+cen.stroop.incon$rt.resid     <- resid(stroop_incon_session_only, newdata = cen.stroop.incon.new, re.form = ~ (1 | participant))
+
+cen.stroop.con.wide                        <- dcast(cen.stroop.con, participant ~ condition, value.var = c("rt.resid"))
+cen.stroop.con.wide$diff_rt_dlpfc          <- cen.stroop.con.wide$D-cen.stroop.con.wide$V
+cen.stroop.con.wide$diff_rt_cerebellum     <- cen.stroop.con.wide$C-cen.stroop.con.wide$V
+
+cen.stroop.incon.wide                        <- dcast(cen.stroop.incon, participant ~ condition, value.var = c("rt.resid"))
+cen.stroop.incon.wide$diff_rt_dlpfc          <- cen.stroop.incon.wide$D-cen.stroop.incon.wide$V
+cen.stroop.incon.wide$diff_rt_cerebellum     <- cen.stroop.incon.wide$C-cen.stroop.incon.wide$V
+
+# plot predicted residuals
+plot(cen.stroop.con.wide$diff_rt_cerebellum, cen.stroop.con.wide$diff_rt_dlpfc, pch = 19)
+abline(v=0, col="blue", lty=2)
+abline(h=15, col="blue", lty=2)
+
+plot(cen.stroop.incon.wide$diff_rt_cerebellum, cen.stroop.incon.wide$diff_rt_dlpfc, pch = 19)
+abline(v=0, col="blue", lty=2)
+abline(h=15, col="blue", lty=2)
+
+#plot difference between active conditions and sham
+ggplot(cen.stroop.con.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Con RT") +
+    xlim(-100, 100) +
+    ylim(-100, 100)
+
+ggplot(cen.stroop.incon.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = participant)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Incon RT") +
+  xlim(-110, 110) +
+  ylim(-110, 110)
+
+#cluster analysis_stroop_rt
+#Select columns of interest
+cen.stroop.con.cluster.rt <- as_tibble(cen.stroop.con.wide)
+cen.stroop.con.cluster.rt <- cen.stroop.con.wide[, c("diff_rt_dlpfc", "diff_rt_cerebellum")]
+# cen.stroop.con.cluster.rt |> select(diff_rt_dlpfc, diff_rt_cerebellum) |> cor(use="pairwise.complete.obs") |> round(2)
+cen.stroop.incon.cluster.rt <- as_tibble(cen.stroop.incon.wide)
+cen.stroop.incon.cluster.rt <- cen.stroop.incon.wide[, c("diff_rt_dlpfc", "diff_rt_cerebellum")]
+# cen.stroop.incon.cluster.rt |> select(diff_rt_dlpfc, diff_rt_cerebellum) |> cor(use="pairwise.complete.obs") |> round(2)
+
+#normalization data frame
+cen.stroop.con.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")] = scale(cen.stroop.con.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")])
+cen.stroop.incon.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")] = scale(cen.stroop.incon.cluster.rt[, c("diff_rt_dlpfc", "diff_rt_cerebellum")])
+
+# Decide how many clusters to look at
+n_clusters <- 10
+
+# Initialize total within sum of squares error: wss
+wss_con_rt <- numeric(n_clusters)
+wss_incon_rt <- numeric(n_clusters)
+set.seed(123)
+
+# Look over 1 to n possible clusters
+for (i in 1:n_clusters) {
+  # Fit the model
+  km_stroop_con_rt <- kmeans(cen.stroop.con.cluster.rt, centers = i, nstart = 20)
+  km_stroop_incon_rt <- kmeans(cen.stroop.incon.cluster.rt, centers = i, nstart = 20)
+  # Save the within cluster sum of squares
+  wss_con_rt[i] <- km_stroop_con_rt$tot.withinss
+  wss_incon_rt[i] <- km_stroop_incon_rt$tot.withinss
+}
+
+# Produce scree plots (Elbow methods)
+wss_con_rt_df <- tibble(clusters = 1:n_clusters, wss_con_rt = wss_con_rt)
+scree_plot_con_rt <- ggplot(wss_con_rt_df, aes(x = clusters, y = wss_con_rt, group = 1)) +
+    geom_point(size = 4)+
+    geom_line() +
+    scale_x_continuous(breaks = c(2, 4, 6, 8, 10)) +
+    xlab('Number of clusters') +
+    geom_hline(
+        yintercept = wss_con_rt,
+        linetype = 'dashed',
+        col = c(rep('#000000',4),'#FF0000', rep('#000000', 5))
+    )
+scree_plot_con_rt
+
+# Silhouette analysis_con_rt
+sil_width <- map_dbl(2:10, function(k){
+  model <- pam(x=cen.stroop.con.cluster.rt, k = k)
+  model$silinfo$avg.width
+})
+sil_df <- data.frame(
+  k=2:10,
+  sil_width = sil_width
+)
+ggplot(sil_df, aes(x=k, y = sil_width)) +
+  geom_line() +
+  scale_x_continuous(breaks = 2:10)
+
+# Silhouette plots
+plot(silhouette(pam(x=cen.stroop.con.cluster.rt, k=2)))
+plot(silhouette(pam(x=cen.stroop.con.cluster.rt, k=3)))
+plot(silhouette(pam(x=cen.stroop.con.cluster.rt, k=4)))
+plot(silhouette(pam(x=cen.stroop.con.cluster.rt, k=5)))
+plot(silhouette(pam(x=cen.stroop.con.cluster.rt, k=6)))
+
+# Produce scree plots (Elbow methods)_incon_rt
+wss_incon_rt_df <- tibble(clusters = 1:n_clusters, wss_incon_rt = wss_incon_rt)
+scree_plot_incon_rt <- ggplot(wss_incon_rt_df, aes(x = clusters, y = wss_incon_rt, group = 1)) +
+    geom_point(size = 4)+
+    geom_line() +
+    scale_x_continuous(breaks = c(2, 4, 6, 8, 10)) +
+    xlab('Number of clusters') +
+    geom_hline(
+        yintercept = wss_con_rt,
+        linetype = 'dashed',
+        col = c(rep('#000000',4),'#FF0000', rep('#000000', 5))
+    )
+scree_plot_incon_rt
+
+# Silhouette analysis_dprime
+sil_width <- map_dbl(2:10, function(k){
+  model <- pam(x=cen.stroop.incon.cluster.rt, k = k)
+  model$silinfo$avg.width
+})
+sil_df <- data.frame(
+  k=2:10,
+  sil_width = sil_width
+)
+ggplot(sil_df, aes(x=k, y = sil_width)) +
+  geom_line() +
+  scale_x_continuous(breaks = 2:10)
+
+# Silhouette plots
+plot(silhouette(pam(x=cen.stroop.incon.cluster.rt, k=2)))
+plot(silhouette(pam(x=cen.stroop.incon.cluster.rt, k=3)))
+plot(silhouette(pam(x=cen.stroop.incon.cluster.rt, k=4)))
+plot(silhouette(pam(x=cen.stroop.incon.cluster.rt, k=5)))
+plot(silhouette(pam(x=cen.stroop.incon.cluster.rt, k=6)))
+
+# Select number of clusters
+k <- 2
+set.seed(123)
+# Build model with k clusters: km.out
+km_stroop_con_rt <- kmeans(cen.stroop.con.cluster.rt, centers = k, nstart = 20)
+km_stroop_incon_rt <- kmeans(cen.stroop.incon.cluster.rt, centers = k, nstart = 20)
+cen.stroop.con.wide$cluster_rt_id <- factor(km_stroop_con_rt$cluster)
+cen.stroop.incon.wide$cluster_rt_id <- factor(km_stroop_incon_rt$cluster)
+
+ggplot(cen.stroop.con.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = cluster_rt_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Con RT")
+
+ggplot(cen.stroop.incon.wide, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = cluster_rt_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Incon RT")
+
+count(cen.stroop.con.wide, cluster_rt_id)
+count(cen.stroop.incon.wide, cluster_rt_id)
+
+# Use cluster analyses based on reaction times to check the difference in ERPs
+cen.stroop.con.wide.new         <- cen.stroop.con.wide  %>% slice(rep(1:n(), each = 3))
+cen.stroop.eeg.con$cluster_rt   <- cen.stroop.con.wide.new$cluster_rt_id
+stroop_con_n2_cluster           <- lmer(formula = stroop_n2_Fz ~  1 + cluster_rt + session + (1 |participant), data = cen.stroop.eeg.con)
+stroop_con_n4_cluster           <- lmer(formula = stroop_n4_Cz ~  1 + cluster_rt + session + (1 |participant), data = cen.stroop.eeg.con)
+summary(stroop_con_n2_cluster)
+summary(stroop_con_n4_cluster)
+
+cen.stroop.incon.wide.new       <- cen.stroop.incon.wide  %>% slice(rep(1:n(), each = 3))
+cen.stroop.eeg.incon$cluster_rt <- cen.stroop.incon.wide.new$cluster_rt_id
+stroop_incon_n2_cluster         <- lmer(formula = stroop_n2_Fz ~  1 + cluster_rt + session + (1 |participant), data = cen.stroop.eeg.incon)
+stroop_incon_n4_cluster         <- lmer(formula = stroop_n4_Cz ~  1 + cluster_rt + session + (1 |participant), data = cen.stroop.eeg.incon)
+summary(stroop_incon_n2_cluster)
+summary(stroop_incon_n4_cluster)
+
+```
+
+```{r Stroop Cluster Analyses}
+k <- 2
+set.seed(123)
+# Build model with k clusters: km.out
+km_stroop_con_rt <- kmeans(cen.stroop.con.cluster.rt, centers = k, nstart = 20)
+km_stroop_incon_rt <- kmeans(cen.stroop.incon.cluster.rt, centers = k, nstart = 20)
+cen.stroop.con.cluster$cluster_rt_id <- factor(km_stroop_con_rt$cluster)
+cen.stroop.incon.cluster$cluster_rt_id <- factor(km_stroop_incon_rt$cluster)
+
+ggplot(cen.stroop.con.cluster, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = cluster_rt_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Con RT")
+
+ggplot(cen.stroop.incon.cluster, aes(diff_rt_dlpfc, diff_rt_cerebellum, color = cluster_rt_id)) +
+    geom_point(alpha = 0.9) +
+    xlab("DLPFC-Sham") +
+    ylab("Cerebellum-Sham") +
+    labs(title = "Stroop Incon RT")
+
+cen.stroop.incon.cluster2 <- filter(cen.stroop.incon.cluster, cluster_rt_id == 2)
+summary(cen.stroop.incon.cluster2)
+
+chisq.test(cen.stroop.incon.cluster2$gender)
+chisq.test(cen.stroop.incon.cluster2$order)
+t.test(age ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+t.test(education ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+t.test(NI ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+t.test(TT ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+t.test(HC ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+t.test(intensity ~ cluster_rt_id, data=cen.stroop.incon.cluster2)
+
+# EEG
+cen.stroop.incon.cluster           <- cen.stroop.incon.cluster %>% slice(rep(1:n(), each = 3))
+cen.stroop.eeg.incon$cluster_rt    <- cen.stroop.incon.cluster$cluster_rt_id
+cen.stroop.eeg.incon.cluster2      <- filter(cen.stroop.eeg.incon, cluster_rt == 2)
+cen_nback_p3_cluster               <- lmer(formula = nback_p3_id_Pz ~  1 + cluster_rt + session + (1 |participant), data = cen.stroop.eeg.incon.cluster2)
+
+```
+
+
+```{r check correlations of ie, erps in stroop}
+cen.stroop.con$ie        <- cen.stroop.con$rt-cen.stroop.incon$rt
+stroop_ie_session_only   <- lmer(formula = ie ~  1 + session + (1 |participant), data = cen.stroop.con)
+
+cen.stroop.ie            <- cen.stroop.con
+cen.stroop.ie$session    <- cen.stroop.con$session[3]
+cen.stroop.ie$rt.resid   <- resid(stroop_ie_session_only, newdata = cen.stroop.ie, re.form = ~ (1 | participant))
+
+cen.stroop.ie.wide                        <- dcast(cen.stroop.ie, participant ~ condition, value.var = c("rt.resid"))
+cen.stroop.ie.wide$diff_rt_dlpfc          <- cen.stroop.ie.wide$D-cen.stroop.ie.wide$V
+cen.stroop.ie.wide$diff_rt_cerebellum     <- cen.stroop.ie.wide$C-cen.stroop.ie.wide$V
+cor.test(cen.stroop.ie.wide$diff_rt_dlpfc, cen.stroop.ie.wide$diff_rt_cerebellum)
+cor.test(cen.stroop.con.wide$diff_rt_dlpfc, cen.stroop.con.wide$diff_rt_cerebellum)
+cor.test(cen.stroop.incon.wide$diff_rt_dlpfc, cen.stroop.incon.wide$diff_rt_cerebellum)
+
+# EEG outcomes
+# Stroop congruent
+stroop_con_n2_session_only   <- lmer(formula = stroop_n2_Fz ~  1 + session + (1 |participant), data = cen.stroop.eeg.con)
+stroop_con_n4_session_only   <- lmer(formula = stroop_n4_Cz ~  1 + session + (1 |participant), data = cen.stroop.eeg.con)
+
+cen.stroop.con.n2            <- cen.stroop.con
+cen.stroop.con.n2$session    <- cen.stroop.con$session[3]
+cen.stroop.con.n2$n2.resid   <- resid(stroop_con_n2_session_only, newdata = cen.stroop.con.n2, re.form = ~ (1 | participant))
+cen.stroop.con.n2.wide                        <- dcast(cen.stroop.con.n2, participant ~ condition, value.var = c("n2.resid"))
+cen.stroop.con.n2.wide$diff_rt_dlpfc          <- cen.stroop.con.n2.wide$D-cen.stroop.con.n2.wide$V
+cen.stroop.con.n2.wide$diff_rt_cerebellum     <- cen.stroop.con.n2.wide$C-cen.stroop.con.n2.wide$V
+cor.test(cen.stroop.con.n2.wide$diff_rt_dlpfc, cen.stroop.con.n2.wide$diff_rt_cerebellum)
+
+cen.stroop.con.n4            <- cen.stroop.con
+cen.stroop.con.n4$session    <- cen.stroop.con$session[3]
+cen.stroop.con.n4$n4.resid   <- resid(stroop_con_n4_session_only, newdata = cen.stroop.con.n4, re.form = ~ (1 | participant))
+cen.stroop.con.n4.wide                        <- dcast(cen.stroop.con.n4, participant ~ condition, value.var = c("n4.resid"))
+cen.stroop.con.n4.wide$diff_rt_dlpfc          <- cen.stroop.con.n4.wide$D-cen.stroop.con.n4.wide$V
+cen.stroop.con.n4.wide$diff_rt_cerebellum     <- cen.stroop.con.n4.wide$C-cen.stroop.con.n4.wide$V
+cor.test(cen.stroop.con.n4.wide$diff_rt_dlpfc, cen.stroop.con.n4.wide$diff_rt_cerebellum)
+
+# Stroop incongruent
+stroop_incon_n2_session_only   <- lmer(formula = stroop_n2_Fz ~  1 + session + (1 |participant), data = cen.stroop.eeg.incon)
+stroop_incon_n4_session_only   <- lmer(formula = stroop_n4_Cz ~  1 + session + (1 |participant), data = cen.stroop.eeg.incon)
+
+cen.stroop.incon.n2            <- cen.stroop.incon
+cen.stroop.incon.n2$session    <- cen.stroop.incon$session[3]
+cen.stroop.incon.n2$n2.resid   <- resid(stroop_incon_n2_session_only, newdata = cen.stroop.incon.n2, re.form = ~ (1 | participant))
+cen.stroop.incon.n2.wide                        <- dcast(cen.stroop.incon.n2, participant ~ condition, value.var = c("n2.resid"))
+cen.stroop.incon.n2.wide$diff_rt_dlpfc          <- cen.stroop.incon.n2.wide$D-cen.stroop.incon.n2.wide$V
+cen.stroop.incon.n2.wide$diff_rt_cerebellum     <- cen.stroop.incon.n2.wide$C-cen.stroop.incon.n2.wide$V
+cor.test(cen.stroop.incon.n2.wide$diff_rt_dlpfc, cen.stroop.incon.n2.wide$diff_rt_cerebellum)
+
+cen.stroop.incon.n4            <- cen.stroop.incon
+cen.stroop.incon.n4$session    <- cen.stroop.incon$session[3]
+cen.stroop.incon.n4$n4.resid   <- resid(stroop_incon_n4_session_only, newdata = cen.stroop.incon.n4, re.form = ~ (1 | participant))
+cen.stroop.incon.n4.wide                        <- dcast(cen.stroop.incon.n4, participant ~ condition, value.var = c("n4.resid"))
+cen.stroop.incon.n4.wide$diff_rt_dlpfc          <- cen.stroop.incon.n4.wide$D-cen.stroop.incon.n4.wide$V
+cen.stroop.incon.n4.wide$diff_rt_cerebellum     <- cen.stroop.incon.n4.wide$C-cen.stroop.incon.n4.wide$V
+cor.test(cen.stroop.incon.n4.wide$diff_rt_dlpfc, cen.stroop.incon.n4.wide$diff_rt_cerebellum)
+
+#2-back
+nback_p3_session_only   <- lmer(formula = nback_p3_id_Pz ~  1 + session + (1 |participant), data = cen.nback.eeg)
+nback_n2_session_only   <- lmer(formula = nback_n2_id_Fz ~  1 + session + (1 |participant), data = cen.nback.eeg)
+
+cen.nback.eeg.n2            <- cen.nback.eeg
+cen.nback.eeg.n2$session    <- cen.nback.eeg$session[3]
+cen.nback.eeg.n2$n2.resid   <- resid(nback_n2_session_only, newdata = cen.nback.eeg.n2, re.form = ~ (1 | participant))
+cen.nback.eeg.n2.wide                        <- dcast(cen.nback.eeg.n2, participant ~ condition, value.var = c("n2.resid"))
+cen.nback.eeg.n2.wide$diff_rt_dlpfc          <- cen.nback.eeg.n2.wide$D-cen.nback.eeg.n2.wide$V
+cen.nback.eeg.n2.wide$diff_rt_cerebellum     <- cen.nback.eeg.n2.wide$C-cen.nback.eeg.n2.wide$V
+cor.test(cen.nback.eeg.n2.wide$diff_rt_dlpfc, cen.nback.eeg.n2.wide$diff_rt_cerebellum)
+
+cen.nback.eeg.p3            <- cen.nback.eeg
+cen.nback.eeg.p3$session    <- cen.nback.eeg$session[3]
+cen.nback.eeg.p3$p3.resid   <- resid(nback_p3_session_only, newdata = cen.nback.eeg.p3, re.form = ~ (1 | participant))
+cen.nback.eeg.p3.wide                        <- dcast(cen.nback.eeg.p3, participant ~ condition, value.var = c("p3.resid"))
+cen.nback.eeg.p3.wide$diff_rt_dlpfc          <- cen.nback.eeg.p3.wide$D-cen.nback.eeg.p3.wide$V
+cen.nback.eeg.p3.wide$diff_rt_cerebellum     <- cen.nback.eeg.p3.wide$C-cen.nback.eeg.p3.wide$V
+cor.test(cen.nback.eeg.p3.wide$diff_rt_dlpfc, cen.nback.eeg.p3.wide$diff_rt_cerebellum)
+
+```
+

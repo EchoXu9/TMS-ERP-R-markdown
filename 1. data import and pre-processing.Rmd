@@ -1,0 +1,309 @@
+---
+title: "data import and pre-processing"
+author: "Echo Mei Xu"
+date: '2024-04-22'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(psycho)
+library(writexl)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(lme4)
+library(afex)
+library(Durga)
+library(bootES)
+library(effectsize)
+library(reshape2)
+library(performance)
+library(gtsummary)
+library(gt)
+library(emmeans)
+
+# load demographic data
+demo <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/demo/230929_cen_demo.xlsx")
+demo <- demo %>%
+  mutate(gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), blinding_best_performance = as.factor(blinding_best_performance), sham = as.factor(sham), real_sham = as.factor(real_sham), confidence = as.numeric(confidence), correct_guess = as.numeric(correct_guess))
+demo.stroop <- filter(demo, participants != '20220621_ALZA_S1' & participants !='20220712_THCH_S1' & participants !='20220729_BOYI_S1' & 
+                        participants !='20220823_HAPA_S1' & participants !='20220902_NILE_S1' & participants !='20220928_HEPA_S1' & 
+                        participants !='20221017_XILI_S1')
+demo.nback  <- filter(demo, participants != '20220621_ALZA_S1' & participants !='20220712_THCH_S1' & participants !='20220729_BOYI_S1' & 
+                        participants !='20220823_HAPA_S1' & participants !='20220902_NILE_S1' & participants !='20220928_HEPA_S1' & 
+                        participants !='20221017_XILI_S1' & participants !='20221025_YAWA_S1')
+
+# load behaviour data
+cen.stroop <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/20230913_cen_cog.xlsx", sheet = "stroop")
+# cen.stroop$session   <- factor (cen.stroop$session, levels = c('S1', 'S2', 'S3'))
+cen.stroop$session   <- as.numeric(cen.stroop$session)
+cen.stroop           <- cen.stroop[order(cen.stroop$participant, cen.stroop$session), ]
+cen.stroop           <- cen.stroop %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), type = as.factor(type),  gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC),intensity = as.numeric(intensity), acc = as.numeric(acc), rt = as.numeric(rt), ie = as.numeric(ie))
+cen.stroop$condition  <- relevel(cen.stroop$condition, ref = "V")
+cen.stroop.con        <- filter (cen.stroop, type == "con")
+cen.stroop.incon      <- filter (cen.stroop, type == "incon")
+
+cen.nback <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/20230913_cen_cog.xlsx", sheet = "2-back")
+# cen.nback$session     <- factor (cen.nback$session, levels = c('S1', 'S2', 'S3'))
+cen.nback$session     <- as.numeric(cen.nback$session)
+cen.nback             <- cen.nback[order(cen.nback$participant, cen.nback$session), ]
+cen.nback             <- cen.nback %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC), intensity = as.numeric(intensity), rt = as.numeric(rt), dprime = as.numeric(dprime))
+cen.nback$condition   <- relevel(cen.nback$condition, ref = "V")
+
+# load eeg data
+cen.stroop.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/eeg/230916_cen_eeg.xlsx", sheet = "stroop")
+cen.stroop.eeg           <- cen.stroop.eeg[order(cen.stroop.eeg$participant, cen.stroop.eeg$session),]
+cen.stroop.eeg           <- cen.stroop.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), stroop_n2_Fz = as.numeric(stroop_n2_Fz), stroop_n4_Cz = as.numeric(stroop_n4_Cz))
+cen.stroop.eeg$condition  <- relevel(cen.stroop.eeg$condition, ref = "V")
+cen.stroop.eeg.con        <- filter (cen.stroop.eeg, type == "con")
+cen.stroop.eeg.incon      <- filter (cen.stroop.eeg, type == "incon")
+
+cen.nback.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/eeg/230916_cen_eeg.xlsx", sheet = "nback")
+cen.nback.eeg             <- cen.nback.eeg[order(cen.nback.eeg$participant, cen.nback.eeg$session),]
+cen.nback.eeg             <- cen.nback.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), nback_p3_Pz = as.numeric(nback_p3_Pz),  nback_n2_Fz = as.numeric(nback_n2_Fz), nback_p3_target = as.numeric(nback_p3_target), nback_n2_target = as.numeric(nback_n2_target), nback_p3_target_Fz = as.numeric(nback_p3_target_Fz))
+cen.nback.eeg$condition   <- relevel(cen.nback.eeg$condition, ref = "V")
+
+# write_xlsx(cen.stroop,"/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/cen_stroop_update.xlsx")
+# write_xlsx(cen.nback,"/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/cen_nback_update.xlsx")
+
+```
+
+```{r pre-process cognitive tasks, echo=FALSE, include=FALSE}
+
+data.filenames <- list.files("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/rawdata/")
+
+# Initialise data.frame
+cog.dataset <- data.frame (participant = character(),
+                              session = numeric(),
+                              condition = character(),
+                              filename = character(),
+                              stroop_con_acc = numeric(), 
+                              stroop_incon_acc = numeric(), 
+                              stroop_con_rt = numeric(), 
+                              stroop_incon_rt = numeric(), 
+                              stroop_if = numeric(),
+                              nback_rt = numeric(), 
+                              nback_hit = numeric(), 
+                              nback_fa = numeric(), 
+                              nback_miss = numeric(), 
+                              nback_cr= numeric(),
+                              stringsAsFactors = FALSE)
+
+
+for(i in 1:length(data.filenames)) {
+  assign(data.filenames[i],                                    
+  stroop.data <- read_excel(paste0("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/rawdata/", data.filenames[i]), sheet = "stroop", col_names = TRUE),
+  nback.data <- read_excel(paste0("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/rawdata/", data.filenames[i]), sheet = "2-back", col_names = TRUE))
+  
+  # Check the height of cog.dataset
+  current.row <- dim(cog.dataset)[1]
+  next.row    <- current.row + 1
+  
+  # Store participant/session/condition details
+  cog.dataset[next.row,1] <- str_split_fixed(data.filenames[i], "_", 4)[1,1]
+  cog.dataset[next.row,2] <- str_split_fixed(data.filenames[i], "_", 4)[1,2]
+  cog.dataset[next.row,3] <- str_split_fixed(data.filenames[i], "_", 4)[1,3]
+  cog.dataset[next.row,4] <- data.filenames[i]
+  
+  # Calculation Stroop outcomes
+  stroop.con       <- filter(stroop.data, correct == 1 & values.congruency == 1) %>% filter (latency < 1000 & latency > 200)
+  stroop.incon     <- filter(stroop.data, correct == 1 & values.congruency == 2) %>% filter (latency < 1000 & latency > 200)
+  stroop_con_acc   <- 100 * sum(stroop.con$correct)/156
+  stroop_incon_acc <- 100 * sum(stroop.incon$correct)/156
+  stroop_con_rt    <- mean(stroop.con$latency)
+  stroop_incon_rt  <- mean(stroop.incon$latency)
+  stroop_if        <- stroop_incon_rt-stroop_con_rt
+  
+   # Calculation 2-back outcomes
+  nback.data           <- filter (nback.data, trialcode !="start" & latency < 2000 & latency > 200) 
+  nback.data.target    <- filter (nback.data, values.trial_Hit == 1)
+  nback_hit            <- sum(nback.data$values.trial_Hit)
+  nback_fa             <- sum(nback.data$values.trial_FA)
+  nback_miss           <- sum(nback.data$values.trial_Miss)
+  nback_cr             <- sum(nback.data$values.trial_CR)
+  nback_rt             <- mean(nback.data.target$latency)
+
+  
+  # Assign Stroop outcomes to the data frame
+  cog.dataset[next.row,5] <- stroop_con_acc
+  cog.dataset[next.row,6] <- stroop_incon_acc
+  cog.dataset[next.row,7] <- stroop_con_rt
+  cog.dataset[next.row,8] <- stroop_incon_rt
+  cog.dataset[next.row,9] <- stroop_if
+  
+   # Assign 2-back outcomes to the data frame
+  cog.dataset[next.row,10] <- nback_rt 
+  cog.dataset[next.row,11] <- nback_hit
+  cog.dataset[next.row,12] <- nback_fa 
+  cog.dataset[next.row,13] <- nback_miss
+  cog.dataset[next.row,14] <- nback_cr
+  
+}
+
+# Calcuate dprime and save dataset
+dprime   <- psycho::dprime(cog.dataset$nback_hit, cog.dataset$nback_fa, cog.dataset$nback_miss, cog.dataset$nback_cr)
+cen.cognition  <- cbind(cog.dataset, dprime)
+write_xlsx(cen.cognition,"/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN/Data_Analysis/results/cog/cen_cognition_updat.xlsx")
+
+```
+
+
+## Demographic outcomes
+
+```{r remove outliers (>3 SD), echo=FALSE}
+# demo
+mean_age        <- mean (demo$age)
+sd_age          <- sd (demo$age)
+mean_education  <- mean (demo$education)
+sd_education    <- sd (demo$education)
+
+mean_nback_age        <- mean (demo.nback$age)
+sd_nback_age          <- sd (demo.nback$age)
+mean_nback_education  <- mean (demo.nback$education)
+sd_nback_education    <- sd (demo.nback$education)
+
+mean_stroop_age       <- mean (demo.stroop$age)
+sd_stroop_age         <- sd (demo.stroop$age)
+mean_stroop_education <- mean (demo.stroop$education)
+sd_stroop_education   <- sd (demo.stroop$education)
+
+#Stroop
+mean_stroop_con_rt    <- mean (cen.stroop.con$rt)
+sd_stroop_con_rt      <- sd (cen.stroop.con$rt)
+mean_stroop_incon_rt  <- mean (cen.stroop.incon$rt)
+sd_stroop_incon_rt    <- sd (cen.stroop.incon$rt)
+mean_stroop_ie        <- mean (cen.stroop.con$ie)
+sd_stroop_ie          <- sd (cen.stroop.con$ie)
+
+cen.stroop.rt.con     <- filter (cen.stroop.con, rt < mean_stroop_con_rt + 3*sd_stroop_con_rt & rt >   mean_stroop_con_rt - 3*sd_stroop_con_rt)
+cen.stroop.rt.incon   <- filter (cen.stroop.incon, rt < mean_stroop_incon_rt + 3*sd_stroop_incon_rt & rt > mean_stroop_incon_rt - 3*sd_stroop_incon_rt)
+cen.stroop.ie         <- filter (cen.stroop.con, ie < mean_stroop_ie + 3*sd_stroop_ie & ie >   mean_stroop_ie - 3*sd_stroop_ie)
+
+mean_stroop_acc   <- mean (cen.stroop$acc)
+sd_stroop_acc     <- sd (cen.stroop$acc)
+
+
+# 2-back
+mean_nback_rt         <- mean(cen.nback$rt)
+sd_nback_rt           <- sd(cen.nback$rt)
+mean_dprime           <- mean(cen.nback$dprime)
+sd_dprime             <- sd(cen.nback$dprime)
+
+cen.nback.rt          <- filter (cen.nback, rt < mean_nback_rt + 3*sd_nback_rt & rt > mean_nback_rt - 3*sd_nback_rt)
+cen.nback.dprime      <- filter (cen.nback, dprime < mean_dprime + 3*sd_dprime & dprime > mean_dprime - 3*sd_dprime)
+
+# ERPs
+mean_nback_p3 <- mean(cen.nback.eeg$nback_p3_Pz)
+sd_nback_p3   <- sd(cen.nback.eeg$nback_p3_Pz)
+mean_nback_n2 <- mean(cen.nback.eeg$nback_n2_Fz)
+sd_nback_n2   <- sd(cen.nback.eeg$nback_n2_Fz)
+
+mean_stroop_con_n2   <- mean(cen.stroop.eeg.con$stroop_n2_Fz)
+sd_stroop_con_n2     <- sd(cen.stroop.eeg.con$stroop_n2_Fz)
+mean_stroop_con_n4   <- mean(cen.stroop.eeg.con$stroop_n4_Cz)
+sd_stroop_con_n4     <- sd(cen.stroop.eeg.con$stroop_n4_Cz)
+mean_stroop_incon_n2 <- mean(cen.stroop.eeg.incon$stroop_n2_Fz)
+sd_stroop_incon_n2   <- sd(cen.stroop.eeg.incon$stroop_n2_Fz)
+mean_stroop_incon_n4 <- mean(cen.stroop.eeg.incon$stroop_n4_Cz)
+sd_stroop_incon_n4   <- sd(cen.stroop.eeg.incon$stroop_n4_Cz)
+
+# update data frames
+cen.nback.eeg.p3        <- filter (cen.nback.eeg, nback_p3_Pz < mean_nback_p3 + 3*sd_nback_p3 
+                                  & nback_p3_Pz > mean_nback_p3 - 3*sd_nback_p3)
+cen.nback.eeg.n2        <- filter (cen.nback.eeg, nback_n2_Fz < mean_nback_n2 + 3*sd_nback_n2 
+                                  & nback_n2_Fz > mean_nback_n2 - 3*sd_nback_n2)
+cen.stroop.con.eeg.n4   <- filter (cen.stroop.eeg.con, stroop_n4_Cz < mean_stroop_con_n4 + 3*sd_stroop_con_n4
+                                 & stroop_n4_Cz > mean_stroop_con_n4 - 3*sd_stroop_con_n4)
+cen.stroop.incon.eeg.n4 <- filter (cen.stroop.eeg.incon, stroop_n4_Cz < mean_stroop_incon_n4 + 3*sd_stroop_incon_n4
+                                 & stroop_n4_Cz > mean_stroop_incon_n4 - 3*sd_stroop_incon_n4)
+cen.stroop.con.eeg.n2   <- filter (cen.stroop.eeg.con, stroop_n2_Fz < mean_stroop_con_n2 + 3*sd_stroop_con_n2
+                                 & stroop_n2_Fz > mean_stroop_con_n2 - 3*sd_stroop_con_n2)
+cen.stroop.incon.eeg.n2 <- filter (cen.stroop.eeg.incon, stroop_n2_Fz < mean_stroop_incon_n2 + 3*sd_stroop_incon_n2
+                                 & stroop_n2_Fz > mean_stroop_incon_n2 - 3*sd_stroop_incon_n2)
+
+
+```
+
+
+# Figures
+
+Initial Figures show the comparison between three conditions. Check the general pattern of data. 
+
+```{r violin and boxplots, echo=FALSE}
+#Behavioral data
+#nback
+ggplot(data = cen.nback.rt,aes(x = condition, y = rt, fill = condition)) +
+     scale_fill_viridis_d(option = "D", labels=c("C = Cerebellum","D = DLPFC","S = Sham")) +
+     labs(title = "Reaction times of 2-back", x = "stimulation condition", y = "reaction times") +
+     geom_violin(alpha=0.4, position = position_dodge(width = 1),size= 0.75,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point(shape = 21, size=2, color="black", alpha=1, position = position_jitterdodge()) +
+     #geom_line(aes(group = participant, color = participant))+
+     theme(legend.position = "right")
+
+ggplot(data = cen.nback.dprime,aes(x = condition, y = dprime, fill = condition)) +
+     scale_fill_viridis_d(option = "D", labels=c("C = Cerebellum","D = DLPFC","S = Sham")) +
+     labs(title = "D-prime of 2-back", x = "stimulation condition", y = "d-prime") +
+     geom_violin(alpha=0.4, position = position_dodge(width = 0.75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21, size=2, color="black", alpha=1, position = position_jitterdodge()) +
+     #geom_line(aes(group = participant, color = participant))+
+     theme(legend.position = "right")
+     
+#stroop
+ggplot(data = cen.stroop.rt.con, aes(x = condition, y = rt, fill = condition)) +
+     scale_fill_viridis_d( option = "D", labels=c("C = Cerebellum","D = DLPFC","S = Sham")) +
+     labs(title = "Reaction times of congruent trials in Stroop", x = "stimulation condition", y = "reaction times") +
+     geom_violin(alpha=0.4, position = position_dodge(width = .75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21,size=2, color="black",alpha=1, position = position_jitterdodge()) +
+     #geom_line(aes(group = participant, color = participant))+
+     theme(legend.position = "right")
+
+
+ggplot(data = cen.stroop.con,aes(x = condition, y = ie, fill = condition)) +
+     scale_fill_viridis_d( option = "D", labels=c("C = Cerebellum","D = DLPFC","S = Sham")) +
+  labs(title = "Reaction times of incongruent trials in Stroop", x = "stimulation condition", y = "reaction times") +
+     geom_violin(alpha=0.4, position = position_dodge(width = .75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21,size=2, color="black",alpha=1, position = position_jitterdodge()) +
+     #geom_line(aes(group = participant, color = participant))+
+     theme(legend.position = "right")
+
+ggplot(data = cen.stroop, aes(x = condition, y = rt, fill = condition)) +
+     scale_fill_viridis_d( option = "D", labels=c("C = Cerebellum","D = DLPFC","S = Sham")) +
+  labs(title = "Reaction times in Stroop", x = "stimulation condition", y = "reaction times") +
+     geom_violin(alpha=0.4, position = position_dodge(width = .75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21,size=2, color="black",alpha=1, position = position_jitterdodge()) +
+     facet_wrap(~ type, nrow = 2)
+
+#erps
+#nback
+ggplot(data = cen.nback.eeg.p3,aes(x = condition, y = nback_p3_Pz, fill = condition))+
+     scale_fill_viridis_d( option = "D", labels=c("C = Cerebellum","D = DLPFC","V = Vertex"))+
+     geom_violin(alpha=0.4, position = position_dodge(width = .75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21,size=2, color="black",alpha=1, position = position_jitterdodge()) 
+
+ggplot(data = cen.nback.eeg.n2,aes(x = condition, y = nback_n2_Fz, fill = condition))+
+     scale_fill_viridis_d( option = "D", labels=c("C = Cerebellum","D = DLPFC","V = Vertex"))+
+     geom_violin(alpha=0.4, position = position_dodge(width = .75),size=1,color="black") +
+     geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1.2, alpha = 0.7) +
+     geom_point( shape = 21,size=2, color="black",alpha=1, position = position_jitterdodge())
+
+```
+
+

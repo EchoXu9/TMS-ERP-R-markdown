@@ -1,0 +1,358 @@
+---
+title: "Rmarkdown_CEN"
+author: "Echo Mei Xu"
+date: '2024-04-22'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(psycho)
+library(writexl)
+library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(lme4)
+library(lmerTest)
+library(afex)
+library(performance)
+library(gtsummary)
+library(gt)
+
+# install.packages("performance", dependencies = TRUE) check model performance
+
+# load cogntive and erp data
+
+cen.stroop <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230807_cen_cog.xlsx", sheet = "stroop")
+cen.stroop$session <- factor (cen.stroop$session, levels = c('S1', 'S2', 'S3'))
+cen.stroop$session <- as.numeric(cen.stroop$session)
+cen.stroop <- cen.stroop %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), type = as.factor(type),  gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC),intensity = as.numeric(intensity), acc = as.numeric(acc), rt = as.numeric(rt))
+
+cen.nback <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/cog/20230807_cen_cog.xlsx", sheet = "2-back")
+cen.nback$session <- factor (cen.nback$session, levels = c('S1', 'S2', 'S3'))
+cen.nback$session <- as.numeric(cen.nback$session)
+cen.nback <- cen.nback %>%
+  mutate(participant = as.factor(participant), task_order = as.factor(task_order), order = as.factor(order), condition = as.factor(condition), gender = as.factor(gender), age = as.numeric(age), education = as.numeric(education), NI = as.numeric(NI), TT = as.numeric(TT), HC = as.numeric(HC), intensity = as.numeric(intensity), rt = as.numeric(rt), dprime = as.numeric(dprime))
+
+demo <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/demo/230612_cen_demo.xlsx")
+  
+demo <- demo %>%
+  mutate(blinding_best_performance = as.factor(blinding_best_performance), sham = as.factor(sham), real_sham = as.factor(real_sham),confidence = as.numeric(confidence), correct_guess = as.numeric(correct_guess))
+
+cen.stroop.eeg <-read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230726_cen_eeg.xlsx", sheet = "stroop")
+cen.stroop.eeg <- cen.stroop.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), stroop_n2_FCz = as.numeric(stroop_n2_FCz), stroop_n4_Cz = as.numeric(stroop_n4_Cz), stroop_n2_FCz = as.numeric(stroop_n2_FCz), stroop_n4_Cz = as.numeric(stroop_n4_Cz))
+
+cen.nback.eeg <- read_excel ("/Users/echo/Library/CloudStorage/OneDrive-UNSW/Brain_Stimulation/CEN_Study_One/Data_Analysis/results/eeg/230726_cen_eeg.xlsx", sheet = "nback")
+cen.nback.eeg <- cen.nback.eeg %>%
+  mutate(participant = as.factor(participant), condition = as.factor(condition), gender = as.factor(gender), session = as.numeric(session), order = as.factor(order), age = as.numeric(age), education = as.numeric(education), intensity = as.numeric(intensity), nback_p3_id_Fz = as.numeric(nback_p3_id_Fz), nback_p3_id_Pz = as.numeric(nback_p3_id_Pz), nback_p3_ga_Fz = as.numeric(nback_p3_ga_Fz), nback_p3_ga_Pz = as.numeric(nback_p3_ga_Pz), nback_n2_ga_Fz = as.numeric(nback_n2_ga_Fz), nback_n2_ga_FCz = as.numeric(nback_n2_ga_FCz))
+
+```
+
+```{r remove outliers (>3 SD), echo=FALSE}
+# demo
+mean_age    <- mean (demo$age)
+sd_age      <- sd (demo$age)
+
+#Stroop
+cen.stroop.con        <- filter (cen.stroop, type == "con")
+cen.stroop.incon      <- filter (cen.stroop, type == "incon")
+
+mean_stroop_con_rt    <- mean (cen.stroop.con$rt)
+sd_stroop_con_rt      <- sd (cen.stroop.con$rt)
+mean_stroop_incon_rt  <- mean (cen.stroop.incon$rt)
+sd_stroop_incon_rt    <- sd (cen.stroop.incon$rt)
+
+cen.stroop.rt.con     <- filter (cen.stroop.con, rt < mean_stroop_con_rt + 3*sd_stroop_con_rt & rt >   mean_stroop_con_rt - 3*sd_stroop_con_rt)
+cen.stroop.rt.incon   <- filter (cen.stroop.incon, rt < mean_stroop_incon_rt + 3*sd_stroop_incon_rt & rt > mean_stroop_incon_rt - 3*sd_stroop_incon_rt)
+
+# 2-back
+mean_nback_rt         <- mean(cen.nback$rt)
+sd_nback_rt           <- sd(cen.nback$rt)
+mean_dprime           <- mean(cen.nback$dprime)
+sd_dprime             <- sd(cen.nback$dprime)
+
+cen.nback.rt          <- filter (cen.nback, rt < mean_nback_rt + 3*sd_nback_rt & rt > mean_nback_rt - 3*sd_nback_rt)
+cen.nback.dprime      <- filter (cen.nback, dprime < mean_dprime + 3*sd_dprime & dprime > mean_dprime - 3*sd_dprime)
+
+# Time-Frequency Analysis
+#mean_nback_gamma <- mean(cen.nback.eeg$nback_gamma1)
+#sd_nback_gamma   <- sd(cen.nback.eeg$nback_gamma1)
+
+#mean_nback_theta <- mean(cen.nback.eeg$nback_theta)
+#sd_nback_theta   <- sd(cen.nback.eeg$nback_theta)
+
+#cen.nback.eeg.gamma <- filter (cen.nback.eeg, nback_gamma1 < mean_nback_gamma1 + 3*sd_nback_gamma1 & nback_gamma1 > mean_nback_gamma1 - 3*sd_nback_gamma1)
+#cen.nback.eeg.theta  <- filter (cen.nback.eeg, nback_theta < mean_nback_theta + 3*sd_nback_theta & nback_theta > mean_nback_theta - 3*sd_nback_theta)
+
+# ERPs
+mean_nback_p3_id_Fz <- mean(cen.nback.eeg$nback_p3_id_Fz)
+sd_nback_p3_id_Fz   <- sd(cen.nback.eeg$nback_p3_id_Fz)
+
+mean_nback_p3_id_Pz <- mean(cen.nback.eeg$nback_p3_id_Pz)
+sd_nback_p3_id_Pz   <- sd(cen.nback.eeg$nback_p3_id_Pz)
+
+mean_nback_p3_ga_Fz <- mean(cen.nback.eeg$nback_p3_ga_Fz)
+sd_nback_p3_ga_Fz   <- sd(cen.nback.eeg$nback_p3_ga_Fz)
+
+mean_nback_p3_ga_Pz <- mean(cen.nback.eeg$nback_p3_ga_Pz)
+sd_nback_p3_ga_Pz   <- sd(cen.nback.eeg$nback_p3_ga_Pz)
+
+mean_nback_n2_ga_Fz <- mean(cen.nback.eeg$nback_n2_ga_Fz)
+sd_nback_n2_ga_Fz   <- sd(cen.nback.eeg$nback_n2_ga_Fz)
+
+mean_nback_n2_ga_FCz <- mean(cen.nback.eeg$nback_n2_ga_FCz)
+sd_nback_n2_ga_FCz   <- sd(cen.nback.eeg$nback_n2_ga_FCz)
+
+mean_stroop_con_n2_ga_FCz <- mean(cen.stroop.eeg$stroop_con_n2_FCz)
+sd_stroop_con_n2_ga_FCz   <- sd(cen.stroop.eeg$stroop_con_n2_FCz)
+
+mean_stroop_con_n4_ga_Cz <- mean(cen.stroop.eeg$stroop_con_n4_Cz)
+sd_stroop_con_n4_ga_Cz   <- sd(cen.stroop.eeg$stroop_con_n4_Cz)
+
+mean_stroop_incon_n2_ga_FCz <- mean(cen.stroop.eeg$stroop_incon_n2_FCz)
+sd_stroop_incon_n2_ga_FCz   <- sd(cen.stroop.eeg$stroop_incon_n2_FCz)
+
+mean_stroop_incon_n4_ga_Cz <- mean(cen.stroop.eeg$stroop_incon_n4_Cz)
+sd_stroop_incon_n4_ga_Cz   <- sd(cen.stroop.eeg$stroop_incon_n4_Cz)
+
+mean_stroop_lsp_ga_Fz <- mean(cen.stroop.eeg$stroop_lsp_Fz)
+sd_stroop_lsp_ga_Fz   <- sd(cen.stroop.eeg$stroop_lsp_Fz)
+cen.stroop.eeg.lsp <- filter (cen.stroop.eeg, stroop_lsp_Fz < mean_stroop_lsp_ga_Fz + 3*sd_stroop_lsp_ga_Fz
+                                  & stroop_lsp_Fz > mean_stroop_lsp_ga_Fz - 3*sd_stroop_lsp_ga_Fz)
+
+
+# update data frames
+cen.nback.eeg.p3.id.Fz <- filter (cen.nback.eeg, nback_p3_id_Fz < mean_nback_p3_id_Fz + 3*sd_nback_p3_id_Fz 
+                                  & nback_p3_id_Fz > mean_nback_p3_id_Fz - 3*sd_nback_p3_id_Fz)
+cen.nback.eeg.p3.id.Pz <- filter (cen.nback.eeg, nback_p3_id_Pz < mean_nback_p3_id_Pz + 3*sd_nback_p3_id_Pz 
+                                  & nback_p3_id_Pz > mean_nback_p3_id_Pz - 3*sd_nback_p3_id_Pz)
+cen.nback.eeg.p3.ga.Fz <- filter (cen.nback.eeg, nback_p3_ga_Fz < mean_nback_p3_ga_Fz + 3*sd_nback_p3_ga_Fz 
+                                  & nback_p3_ga_Fz > mean_nback_p3_ga_Fz - 3*sd_nback_p3_ga_Fz)
+cen.nback.eeg.p3.ga.Pz <- filter (cen.nback.eeg, nback_p3_ga_Pz < mean_nback_p3_ga_Pz + 3*sd_nback_p3_ga_Pz 
+                                  & nback_p3_ga_Pz > mean_nback_p3_ga_Pz - 3*sd_nback_p3_ga_Pz)
+cen.nback.eeg.n2.ga.Fz <- filter (cen.nback.eeg, nback_n2_ga_Fz < mean_nback_n2_ga_Fz + 3*sd_nback_n2_ga_Fz 
+                                  & nback_n2_ga_Fz > mean_nback_n2_ga_Fz - 3*sd_nback_n2_ga_Fz)
+cen.nback.eeg.n2.ga.FCz <- filter (cen.nback.eeg, nback_n2_ga_FCz < mean_nback_n2_ga_FCz + 3*sd_nback_n2_ga_FCz 
+                                  & nback_n2_ga_FCz > mean_nback_n2_ga_FCz - 3*sd_nback_n2_ga_FCz)
+#cen.stroop.con.eeg.n2.ga.FCz <- filter (cen.stroop.eeg, stroop_con_n2_FCz < mean_stroop_con_n2_ga_FCz + 3*sd_stroop_con_n2_ga_FCz 
+#                                  & stroop_con_n2_FCz > mean_stroop_con_n2_ga_FCz - 3*sd_stroop_con_n2_ga_FCz)
+#cen.stroop.con.eeg.n4.ga.Cz <- filter (cen.stroop.eeg, stroop_con_n4_Cz < mean_stroop_con_n4_ga_Cz + 3*sd_stroop_con_n4_ga_Cz 
+#                                  & stroop_con_n4_Cz > mean_stroop_con_n4_ga_Cz - 3*sd_stroop_con_n4_ga_Cz)
+#cen.stroop.incon.eeg.n2.ga.FCz <- filter (cen.stroop.eeg, stroop_incon_n2_FCz < mean_stroop_incon_n2_ga_FCz + 3*sd_stroop_incon_n2_ga_FCz 
+#                                  & stroop_incon_n2_FCz > mean_stroop_incon_n2_ga_FCz - 3*sd_stroop_incon_n2_ga_FCz)
+#cen.stroop.incon.eeg.n4.ga.Cz <- filter (cen.stroop.eeg, stroop_incon_n4_Cz < mean_stroop_incon_n4_ga_Cz + 3*sd_stroop_incon_n4_ga_Cz 
+#                                  & stroop_incon_n4_Cz > mean_stroop_incon_n4_ga_Cz - 3*sd_stroop_incon_n4_ga_Cz)
+
+
+```
+
+
+```{r 2-back_primary analyses, echo=FALSE}
+cen.nback$condition   <- relevel(cen.nback$condition, ref = "S")
+nback_rt_full         <- lmer(formula = rt ~  1 + condition + session + (1 |participant), data = cen.nback.rt)
+nback_rt_reduce       <- lmer(formula = rt ~  1 + condition + (1 |participant), data = cen.nback.rt)
+anova(nback_rt_full, nback_rt_reduce, refit = FALSE)
+# fixef(nback_rt_full)   # fixed effects
+# confint(nback_rt_full) # confidence interval 
+summary(nback_rt_full)
+check_model(nback_rt_full)  # check the model performance
+
+cen.nback.dprime$condition <- relevel(cen.nback.dprime$condition, ref = "S")
+nback_dprime_full     <- lmer(formula = dprime ~  1 + condition + session + (1 |participant), data = cen.nback.dprime)
+nback_dprime_reduce   <- lmer(formula = dprime ~  1 + condition + (1 |participant), data = cen.nback.dprime)
+anova(nback_dprime_full, nback_dprime_reduce, refit = FALSE)
+summary (nback_dprime_full)
+check_model(nback_dprime_reduce)
+
+```
+
+
+```{r Stroop_primary analyses, echo=FALSE} 
+cen.stroop.rt.con$condition <- relevel(cen.stroop.rt.con$condition, ref = "S")
+stroop_rt_con_full    <- lmer(formula = rt ~  1 + condition + session + (1 |participant), data = cen.stroop.rt.con)
+stroop_rt_con_reduce  <- lmer(formula = rt ~  1 + condition + (1 |participant), data = cen.stroop.rt.con)
+anova(stroop_rt_con_full, stroop_rt_con_reduce, refit = FALSE)
+summary(stroop_rt_con_full)
+check_model(stroop_rt_con_full)
+
+cen.stroop.rt.incon$condition <- relevel(cen.stroop.rt.incon$condition, ref = "S")
+stroop_rt_incon_full    <- lmer(formula = rt ~  1 + condition + session + (1 |participant), data = cen.stroop.rt.incon)
+stroop_rt_incon_reduce  <- lmer(formula = rt ~  1 + condition + (1 |participant), data = cen.stroop.rt.incon)
+anova(stroop_rt_incon_full, stroop_rt_incon_reduce, refit = FALSE)
+summary(stroop_rt_incon_full)
+check_model(stroop_rt_incon_full)
+
+#interference effects
+cen.stroop$condition <- relevel(cen.stroop$condition, ref = "S")
+stroop_rt_ie_full    <- lmer(formula = rt ~  1 + condition + session + type*condition + (1 |participant), data = cen.stroop)
+stroop_rt_ie_reduce  <- lmer(formula = rt ~  1 + condition + session + (1 |participant), data = cen.stroop)
+anova(stroop_rt_ie_full, stroop_rt_ie_reduce, refit = FALSE)
+summary(stroop_rt_ie_full)
+check_model(stroop_rt_ie_full)
+
+```
+
+
+```{r eeg analyses, echo=FALSE, include=FALSE}
+#TFS
+#nback_gamma_full         <- lmer(formula = nback_gamma ~  1 + condition + order + (1 |participant), data = cen.nback.eeg.gamma)
+#nback_gamma_reduce       <- lmer(formula = nback_gamma ~  1 + order + (1 |participant), data = cen.nback.eeg.gamma)
+#anova(nback_gamma_full, nback_gamma_reduce, refit = FALSE)
+#summary (nback_gamma_full)
+
+#nback_theta_full         <- lmer(formula = nback_theta ~  1 + condition + order + (1 |participant), data = cen.nback.eeg.theta)
+#nback_theta_reduce       <- lmer(formula = nback_theta ~  1 + order + (1 |participant), data = cen.nback.eeg.theta)
+#anova(nback_theta_full, nback_theta_reduce, refit = FALSE)
+#summary (nback_theta_full)
+
+## 2back ERPs
+# P3 Grand-average
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_p3_ga_Fz_full         <- lmer(formula = nback_p3_ga_Fzz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_p3_ga_Fz_reduce       <- lmer(formula = nback_p3_ga_Fzz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_p3_ga_Fz_full, nback_p3_ga_Fz_reduce, refit = FALSE)
+summary(nback_p3_ga_Fz_full)
+check_model(nback_p3_ga_Fz_full)
+
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_p3_ga_Pz_full         <- lmer(formula = nback_p3_ga_Pz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_p3_ga_Pz_reduce       <- lmer(formula = nback_p3_ga_Pz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_p3_ga_Pz_full, nback_p3_ga_Pz_reduce, refit = FALSE)
+summary(nback_p3_ga_Pz_full)
+check_model(nback_p3_ga_Pz_full)
+
+# P3 Individualization
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_p3_id_Fz_full         <- lmer(formula = nback_p3_id_Fzz ~  1 + condition + session+ (1 |participant), data = cen.nback.eeg)
+nback_p3_id_Fz_reduce       <- lmer(formula = nback_p3_id_Fzz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_p3_id_Fz_full, nback_p3_id_Fz_reduce, refit = FALSE)
+summary(nback_p3_id_Fz_full)
+check_model(nback_p3_id_Fz_full)
+
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_p3_id_FCz_full         <- lmer(formula = nback_p3_id_FCz ~  1 + condition + session+ (1 |participant), data = cen.nback.eeg)
+nback_p3_id_FCz_reduce       <- lmer(formula = nback_p3_id_FCz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_p3_id_FCz_full, nback_p3_id_FCz_reduce, refit = FALSE)
+summary(nback_p3_id_FCz_full)
+check_model(nback_p3_id_Fz_full)
+
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_p3_id_Pz_full         <- lmer(formula = nback_p3_id_Pz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_p3_id_Pz_reduce       <- lmer(formula = nback_p3_id_Pz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_p3_id_Pz_full, nback_p3_id_Pz_reduce, refit = FALSE)
+summary(nback_p3_id_Pz_full)
+check_model(nback_p3_id_Pz_full)
+
+# N2 Grand-average
+cen.nback.eeg$condition <- relevel(cen.nback.eeg.n2.ga.Fz$condition, ref = "S")
+nback_n2_Fz_full         <- lmer(formula = nback_n2_ga_Fz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_n2_Fz_reduce       <- lmer(formula = nback_n2_ga_Fz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_n2_Fz_full, nback_n2_Fz_reduce, refit = FALSE)
+summary (nback_n2_Fz_full)
+check_model(nback_n2_Fz_full)
+
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_n2_FCz_full         <- lmer(formula = nback_n2_ga_FCz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_n2_FCz_reduce       <- lmer(formula = nback_n2_ga_FCz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_n2_FCz_full, nback_n2_FCz_reduce, refit = FALSE)
+summary (nback_n2_FCz_full)
+check_model (nback_n2_FCz_full)
+
+# N2 Individualization
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_n2_FCz_full         <- lmer(formula = nback_n2_id_FCz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_n2_FCz_reduce       <- lmer(formula = nback_n2_id_FCz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_n2_FCz_full, nback_n2_FCz_reduce, refit = FALSE)
+summary (nback_n2_FCz_full)
+check_model (nback_n2_FCz_full)
+
+cen.nback.eeg$condition <- relevel(cen.nback.eeg$condition, ref = "S")
+nback_n2_Fz_full         <- lmer(formula = nback_n2_id_Fz ~  1 + condition + session + (1 |participant), data = cen.nback.eeg)
+nback_n2_Fz_reduce       <- lmer(formula = nback_n2_id_Fz ~  1 + condition + (1 |participant), data = cen.nback.eeg)
+anova(nback_n2_Fz_full, nback_n2_FCz_reduce, refit = FALSE)
+summary (nback_n2_Fz_full)
+check_model (nback_n2_Fz_full)
+
+## Stroop ERPs
+# Congruent trials N2 Grand-average
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_con_n2_Fz_full         <- lmer(formula = stroop_con_n2_Fz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_con_n2_Fz_reduce       <- lmer(formula = stroop_con_n2_Fz ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_con_n2_Fz_full, stroop_con_n2_Fz_reduce, refit = FALSE)
+summary (stroop_con_n2_FCz_full)
+check_model (stroop_con_n2_FCz_full)
+
+# Congruent trials N2 individualization
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_con_n2_FCz_full         <- lmer(formula = stroop_con_id_n2_FCz_s ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_con_n2_FCz_reduce       <- lmer(formula = stroop_con_id_n2_FCz_s ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_con_n2_FCz_full, stroop_con_n2_FCz_reduce, refit = FALSE)
+summary (stroop_con_n2_FCz_full)
+
+# Congruent trials N4 Grand-average
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_con_n4_Cz_full         <- lmer(formula = stroop_con_n4_Cz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_con_n4_Cz_reduce       <- lmer(formula = stroop_con_n4_Cz ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_con_n4_Cz_full, stroop_con_n4_Cz_reduce, refit = FALSE)
+summary (stroop_con_n4_Cz_full)
+check_model (stroop_con_n4_Cz_full)
+
+# Incongruent trials N2 Grand-average
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_incon_n2_Fz_full         <- lmer(formula = stroop_incon_n2_Fz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_incon_n2_Fz_reduce       <- lmer(formula = stroop_incon_n2_Fz ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_incon_n2_Fz_full, stroop_incon_n2_Fz_reduce, refit = FALSE)
+summary (stroop_incon_n2_Fz_full)
+check_model (stroop_incon_n2_Fz_full)
+
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_incon_n2_FCz_full         <- lmer(formula = stroop_incon_n2_FCz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_incon_n2_FCz_reduce       <- lmer(formula = stroop_incon_n2_FCz ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_incon_n2_FCz_full, stroop_incon_n2_FCz_reduce, refit = FALSE)
+summary (stroop_incon_n2_FCz_full)
+check_model (stroop_incon_n2_FCz_full)
+
+# Incongruent trials N2 individualization
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_incon_n2_FCz_full         <- lmer(formula = stroop_incon_id_n2_FCz_l ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_incon_n2_FCz_reduce       <- lmer(formula = stroop_incon_id_n2_FCz_l ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_incon_n2_FCz_full, stroop_incon_n2_FCz_reduce, refit = FALSE)
+summary (stroop_incon_n2_FCz_full)
+
+
+# Incongruent trials N4 Grand-average
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_incon_n4_Cz_full         <- lmer(formula = stroop_incon_n4_Cz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+stroop_incon_n4_Cz_reduce       <- lmer(formula = stroop_incon_n4_Cz ~  1 + condition + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_incon_n4_Cz_full, stroop_incon_n4_Cz_reduce, refit = FALSE)
+summary (stroop_incon_n4_Cz_full)
+check_model (stroop_incon_n4_Cz_full)
+
+# Interference effects
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_n4_Cz_full         <- lmer(formula = stroop_n4_Cz ~  1 + condition + session + type * condition + (1 |participant), data = cen.stroop.eeg)
+stroop_n4_Cz_reduce       <- lmer(formula = stroop_n4_Cz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_n4_Cz_full, stroop_n4_Cz_reduce, refit = FALSE)
+summary (stroop_n4_Cz_full)
+
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_n2_FCz_full         <- lmer(formula = stroop_n2_Fz ~  1 + condition + session + type * condition + (1 |participant), data = cen.stroop.eeg)
+stroop_n2_FCz_reduce       <- lmer(formula = stroop_n2_Fz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_n2_FCz_full, stroop_n2_FCz_reduce, refit = FALSE)
+summary (stroop_n2_FCz_full)
+
+cen.stroop.eeg$condition <- relevel(cen.stroop.eeg$condition, ref = "S")
+stroop_lsp_Fz_full         <- lmer(formula = stroop_lsp_Fz ~  1 + condition + session + type * condition + (1 |participant), data = cen.stroop.eeg)
+stroop_lsp_Fz_reduce       <- lmer(formula = stroop_lsp_Fz ~  1 + condition + session + (1 |participant), data = cen.stroop.eeg)
+anova(stroop_lsp_Fz_full, stroop_lsp_Fz_reduce, refit = FALSE)
+summary (stroop_lsp_Fz_full)
+```
+
